@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Intern Attendance Portal</title>
+  <style>
+    body { font-family: Arial; margin:0; padding:0; background:#f4f6f9; }
+    .header { background:#1f2937; color:white; padding:20px; font-size:22px; font-weight:bold; text-align:center; }
+    .tabs { display:flex; justify-content:center; margin-top:10px; }
+    .tab { padding:10px 20px; margin:0 5px; background:#ddd; cursor:pointer; border-radius:6px 6px 0 0; }
+    .tab.active { background:#1f2937; color:white; }
+    .container { display:none; margin:20px auto; width:90%; max-width:800px; background:white; padding:30px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    .container.active { display:block; }
+    video { width:100%; border-radius:6px; background:#000; }
+    button { width:100%; padding:20px; margin-top:15px; font-size:18px; border:none; border-radius:6px; cursor:pointer; }
+    .in { background:#16a34a; color:white; }
+    .out { background:#dc2626; color:white; }
+    .status { margin-top:10px; font-size:14px; color:gray; }
+    table { width:100%; border-collapse:collapse; margin-top:20px; }
+    th, td { padding:12px; border:1px solid #ddd; text-align:center; }
+    th { background:#1f2937; color:white; }
+    input { width:60px; text-align:center; }
+    .progress-bar { height:16px; background:#d1d5db; border-radius:8px; overflow:hidden; }
+    .progress { height:100%; background:#16a34a; width:0%; }
+    button.save-btn { padding:6px 12px; margin-left:5px; background:#2563eb; color:white; border:none; border-radius:4px; cursor:pointer; }
+    button.save-btn:hover { background:#1e40af; }
+  </style>
+</head>
+<body>
+<div class="header">Intern Attendance Portal</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" onclick="showTab('kiosk')">Attendance Kiosk</div>
+  <div class="tab" onclick="showTab('admin')">Admin Dashboard</div>
+</div>
+
+<!-- Kiosk Container -->
+<div class="container active" id="kiosk">
+  <video id="video" autoplay playsinline></video>
+  <button class="in" onclick="captureAndSubmit('TIME IN')">TIME IN</button>
+  <button class="out" onclick="captureAndSubmit('TIME OUT')">TIME OUT</button>
+  <div class="status" id="kiosk-status">Initializing camera & GPS...</div>
+</div>
+
+<!-- Admin Container -->
+<div class="container" id="admin">
+  <table id="adminTable">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Name</th>
+        <th>Required Hours</th>
+        <th>Completed Hours</th>
+        <th>Progress</th>
+        <th>Update</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+// ================= CONFIG =================
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLbuydVz_HAU5gNTt3bfE3tpk941uwqZ3m_8KxkA2m-73P3oWVLDH2Oh3yMZum6gqD/exec";
+
+let latitude = "";
+let longitude = "";
+let email = "";
+
+// ================= Tabs =================
+function showTab(tab){
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab[onclick="showTab('${tab}')"]`).classList.add('active');
+  document.getElementById(tab).classList.add('active');
+}
+
+// ================= Kiosk =================
+
+// Get email from Apps Script (optional, or prompt)
+fetch(SCRIPT_URL + "?action=getEmail")
+  .then(r=>r.text())
+  .then(e => { email = e || prompt("Enter your email:"); });
+
+// GPS
+navigator.geolocation.getCurrentPosition(pos => {
+  latitude = pos.coords.latitude;
+  longitude = pos.coords.longitude;
+  document.getElementById("kiosk-status").innerText = "Ready";
+}, err => { document.getElementById("kiosk-status").innerText = "GPS error: "+err.message; });
+
+// Camera
+const video = document.getElementById('video');
+navigator.mediaDevices.getUserMedia({video:true})
+  .then(stream => { video.srcObject = stream; })
+  .catch(err => alert("Camera error: "+err.message));
+
+// Capture & submit
+function captureAndSubmit(type){
+  if(!latitude){ alert("GPS required"); return; }
+  if(!email){ alert("Email required"); return; }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+  const photoData = canvas.toDataURL("image/jpeg",0.7);
+
+  document.getElementById('kiosk-status').innerText = "Submitting...";
+
+  fetch(SCRIPT_URL, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      action:"saveAttendance",
+      email: email,
+      type: type,
+      latitude: latitude,
+      longitude: longitude,
+      photo: photoData
+    })
+  })
+  .then(r=>r.text())
+  .then(resp=>{
+    document.getElementById('kiosk-status').innerText = "Ready";
+    alert(resp);
+  })
+  .catch(err=>{
+    document.getElementById('kiosk-status').innerText = "Ready";
+    alert("Error: "+err.message);
+  });
+}
+
+// ================= Admin =================
+function loadAdminData() {
+  fetch(SCRIPT_URL, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ action:"getAdminData" })
+  })
+  .then(r => r.json())
+  .then(data => {
+    const tbody = document.querySelector("#adminTable tbody");
+    tbody.innerHTML = "";
+    data.forEach(row => {
+      const email = row[0];
+      const name = row[1];
+      const required = row[2];
+      const completed = row[3];
+
+      let progressPercent = 0;
+      if(required > 0) progressPercent = Math.min((completed/required)*100,100);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${email}</td>
+        <td>${name}</td>
+        <td><input type="number" value="${required}" min="0" id="req-${email}"></td>
+        <td>${completed.toFixed(2)}</td>
+        <td>
+          <div class="progress-bar">
+            <div class="progress" style="width:${progressPercent}%"></div>
+          </div>
+        </td>
+        <td>
+          <button class="save-btn" onclick="updateHours('${email}')">Save</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  })
+  .catch(err => alert("Error loading admin data: " + err.message));
+}
+
+function updateHours(email){
+  const input = document.getElementById(`req-${email}`);
+  const hours = parseFloat(input.value);
+  fetch(SCRIPT_URL, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ action:"setRequiredHours", email:email, hours:hours })
+  })
+  .then(r => r.text())
+  .then(msg => {
+    alert(msg);
+    loadAdminData();
+  })
+  .catch(err => alert("Error updating hours: "+err.message));
+}
+
+// Load admin data initially
+loadAdminData();
+</script>
+</body>
+</html>
