@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Intern Attendance Kiosk</title>
+  <style>
+    body { font-family: Arial; background:#f4f6f9; text-align:center; margin:0; padding:0; }
+    .header { background:#1f2937; color:white; padding:20px; font-size:22px; font-weight:bold; }
+    .container { margin:40px auto; width:400px; background:white; padding:30px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    video { width:100%; border-radius:6px; background:#000; }
+    button { width:100%; padding:20px; margin-top:15px; font-size:18px; border:none; border-radius:6px; cursor:pointer; }
+    .in { background:#16a34a; color:white; }
+    .out { background:#dc2626; color:white; }
+    .status { margin-top:10px; font-size:14px; color:gray; }
+  </style>
+</head>
+<body>
+
+<div class="header">Intern Attendance Portal</div>
+<div class="container">
+  <video id="video" autoplay playsinline></video>
+  <button class="in" onclick="captureAndSubmit('TIME IN')">TIME IN</button>
+  <button class="out" onclick="captureAndSubmit('TIME OUT')">TIME OUT</button>
+  <div class="status" id="status">Initializing camera & GPS...</div>
+</div>
+
+<script>
+let latitude = "";
+let longitude = "";
+let email = "";
+
+// Replace with your deployed Apps Script Web App URL
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLbuydVz_HAU5gNTt3bfE3tpk941uwqZ3m_8KxkA2m-73P3oWVLDH2Oh3yMZum6gqD/exec";
+
+// Get email from Apps Script
+fetch(SCRIPT_URL + "?action=getEmail")
+  .then(r=>r.text())
+  .then(e => email = e);
+
+// Get GPS
+navigator.geolocation.getCurrentPosition(pos => {
+  latitude = pos.coords.latitude;
+  longitude = pos.coords.longitude;
+  document.getElementById("status").innerText = "Ready";
+}, err => {
+  document.getElementById("status").innerText = "GPS error: " + err.message;
+});
+
+// Start camera
+const video = document.getElementById('video');
+navigator.mediaDevices.getUserMedia({video:true})
+  .then(stream => { video.srcObject = stream; })
+  .catch(err => { alert("Camera error: " + err.message); });
+
+// Capture and submit attendance
+function captureAndSubmit(type){
+  if(!latitude){ alert("GPS required"); return; }
+  if(!email){ alert("Email not loaded"); return; }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+  const photoData = canvas.toDataURL("image/jpeg",0.7);
+
+  document.getElementById('status').innerText = "Submitting...";
+
+  fetch(SCRIPT_URL, {
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      action: "saveAttendance",
+      email: email,
+      type: type,
+      latitude: latitude,
+      longitude: longitude,
+      photo: photoData
+    })
+  })
+  .then(r=>r.text())
+  .then(resp=>{
+    document.getElementById('status').innerText = "Ready";
+    alert(resp);
+  })
+  .catch(err=>{
+    document.getElementById('status').innerText = "Ready";
+    alert("Error: "+err.message);
+  });
+}
+</script>
+</body>
+</html>
